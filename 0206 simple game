@@ -1,0 +1,267 @@
+#include <iostream>
+//입출력을 하기 위해 필요함 (cout, cin 사용 가능)
+#include <vector>
+//여러 개의 몬스터와 아이템을 저장하기 위해 사용
+#include <conio.h>
+//키보드 입력을 감지하는 함수 (_kbhit(), _getch() 사용 가능)
+#include <windows.h>
+//sleep() 함수를 사용해 게임을 멈췄다가 진행 가능
+#include <ctime>
+//time()을 사용해서 랜덤한 값 생성에 사용
+#include <cstdlib>
+//rand(), srand()를 사용해서 랜덤한 값 생성 가능
+
+
+using namespace std;
+
+
+// 게임 설정
+const int WIDTH = 30;
+const int HEIGHT = 15;
+//위에 쓴 WIDTH, HEIGHT는 맵 크기를 결정함
+//30 X 15 크기의 맵을 사용
+const int STARTING_ENEMIES = 3;
+//처음 시작할 때 몬스터 3마리가 생성됨
+const int STARTING_HEALTH = 5;
+//플레이어의 초기 체력 5
+const int ATTACK_RANGE = 1; // 플레이어 공격 범위
+//공격할 수 있는 거리
+//공격하면 한 칸 이내 몬스터 제거 가능
+
+
+//위치를 저장하는 구조체 만들기
+struct Position {
+    int x, y;
+};
+/*
+-이 구조체가 하는 일
+  -> 게임 속 플레이어, 몬스터, 아이템의 위치를 저장하는 역할을 함
+  -> x, y 값은 맵에서 해당 오브젝트의 좌표를 나타냄
+*/
+
+
+// 플레이어, 몬스터, 아이템 정의하기
+
+// 플레이어 구조체
+struct Player {
+    Position pos;
+    char icon = '@';
+    int health = STARTING_HEALTH;
+};
+
+// 몬스터 구조체
+struct Enemy {
+    Position pos;
+    char icon = 'X';
+};
+
+// 아이템 구조체
+struct Item {
+    Position pos;
+    char icon = '+';
+};
+
+
+// 함수 선언
+void Initialize(Player& player, vector<Enemy>& enemies, vector<Item>& items);
+void Draw(Player player, vector<Enemy> enemies, vector<Item> items);
+void HandleInput(Player& player, vector<Enemy>& enemies);
+void MoveEnemies(vector<Enemy>& enemies);
+void CheckCollisions(Player& player, vector<Enemy>& enemies, vector<Item>& items);
+void SpawnEnemy(vector<Enemy>& enemies);
+void SpawnItem(vector<Item>& items);
+void Attack(Player& player, vector<Enemy>& enemies);
+void GameLoop();
+/*
+- 이 함수들을 미리 선언하는 이유?
+  -> c++에서는 함수를 사용하기 전에 미리 선언을 해야함
+  -> void -> 이 함수들은 값을 반환하지 않고 실행만 한다
+  -> 여기서 게임의 핵심 기능을 담당하는 함수들이 선언됨
+*/
+/*
+- 괄호 안에 있는 것들을 "매개변수(파라미터)라고 함
+- 이 함수가 실행될 때 필요한 정보들을 전달하는 역할을 함
+*/
+/*
+-기호는 왜 있을까
+  -> & 기호는 "참조"를 의미
+    > 참조를 사용하면 원래 변수의 값이 변경됨
+*/
+
+
+// 게임 초기화 함수
+void Initialize(Player& player, vector<Enemy>& enemies, vector<Item>& items) {
+    srand(time(0)); //매번 새로운 랜덤 값을 만들어서 몬스터 위치를 다르게 배치
+    player.pos = { WIDTH / 2, HEIGHT / 2 }; // 플레이어를 중앙에 배치
+    for (int i = 0; i < STARTING_ENEMIES; i++) {
+        SpawnEnemy(enemies); //초기에 몬스터 3마리 생성
+    }
+    SpawnItem(items); //아이템 하나 생성
+}
+
+
+// 화면 렌더링 (게임 화면을 그리는 함수)
+void Draw(Player player, vector<Enemy> enemies, vector<Item> items) {
+    system("cls"); // 화면 초기화
+    //콘솔 화면을 지우고 새로운 화면을 그림
+    cout << "Health: " << player.health << endl; //플레이어의 체력을 출력
+
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            if (x == player.pos.x && y == player.pos.y)
+                cout << player.icon;
+            else {
+                bool isDrawn = false;
+                for (const auto& enemy : enemies) {
+                    if (x == enemy.pos.x && y == enemy.pos.y) {
+                        cout << enemy.icon;
+                        isDrawn = true;
+                        break;
+                    }
+                }
+                for (const auto& item : items) {
+                    if (x == item.pos.x && y == item.pos.y) {
+                        cout << item.icon;
+                        isDrawn = true;
+                        break;
+                    }
+                }
+                if (!isDrawn) cout << ".";
+            }
+        }
+        cout << endl;
+    }
+}
+/*
+2중 for문을 사용해 맵을 출력하면서 
+  -> 플레이어가 있으면 @ 출력
+  -> 몬스터가 있으면 X 출력
+  -> 아이템이 있으면 + 출력
+  -> 아무것도 없으면 . 출력
+*/
+
+
+// 플레이어 입력 처리 함수 (입력 처리)
+void HandleInput(Player& player, vector<Enemy>& enemies) {
+    if (_kbhit()) { //_kbhit -> 키보드 입력이 있는지 확인하는 함수
+        char key = _getch(); //_getch -> 사용자가 누른 키를 가져오는 함수
+        switch (key) { //어떤 키를 눌렀는지 확인하고, 그에 맞게 플레이어를 움직임
+        case 'w': if (player.pos.y > 0) player.pos.y--; break;
+        case 's': if (player.pos.y < HEIGHT - 1) player.pos.y++; break;
+        case 'a': if (player.pos.x > 0) player.pos.x--; break;
+        case 'd': if (player.pos.x < WIDTH - 1) player.pos.x++; break;
+        case ' ': Attack(player, enemies); break; // 스페이스바 공격
+        }
+    }
+}
+
+
+// 몬스터 이동 함수 (랜덤)
+void MoveEnemies(vector<Enemy>& enemies) {
+    for (auto& enemy : enemies) {
+        int direction = rand() % 4; //0 ~ 3 중에서 랜덤한 숫자를 선택
+        switch (direction) {
+        case 0: if (enemy.pos.y > 0) enemy.pos.y--; break;
+        case 1: if (enemy.pos.y < HEIGHT - 1) enemy.pos.y++; break;
+        case 2: if (enemy.pos.x > 0) enemy.pos.x--; break;
+        case 3: if (enemy.pos.x < WIDTH - 1) enemy.pos.x++; break;
+        }
+    }
+}
+
+
+// 충돌 판정 (플레이어가 몬스터와 부딪히면 체력 감소, 아이템 먹기)
+void CheckCollisions(Player& player, vector<Enemy>& enemies, vector<Item>& items) {
+    // 몬스터와 충돌하면 체력 감소
+    for (auto it = enemies.begin(); it != enemies.end();) {
+        if (player.pos.x == it->pos.x && player.pos.y == it->pos.y) {
+            //플레이어와 몬스터의 위치가 같다면 충돌 발생
+            player.health--; //체력 감소
+            it = enemies.erase(it); // 충돌한 몬스터 삭제
+        }
+        else {
+            ++it;
+        }
+    }
+
+    // 아이템과 충돌하면 체력 증가
+    for (auto it = items.begin(); it != items.end();) {
+        if (player.pos.x == it->pos.x && player.pos.y == it->pos.y) {
+            //플레이어와 아이템의 위치가 같다면 충돌 발생
+            player.health++; //체력 회복
+            it = items.erase(it); // 아이템 제거
+        }
+        else {
+            ++it;
+        }
+    }
+}
+
+
+// 몬스터 생성
+void SpawnEnemy(vector<Enemy>& enemies) {
+    Position newEnemyPos;
+    do {
+        newEnemyPos.x = rand() % WIDTH;
+        newEnemyPos.y = rand() % HEIGHT;
+    } while (newEnemyPos.x == WIDTH / 2 && newEnemyPos.y == HEIGHT / 2);
+
+    enemies.push_back({ newEnemyPos, 'X' });
+}
+
+
+// 아이템 생성
+void SpawnItem(vector<Item>& items) {
+    Position newItemPos;
+    newItemPos.x = rand() % WIDTH;
+    newItemPos.y = rand() % HEIGHT;
+    items.push_back({ newItemPos, '+' });
+}
+
+
+// 플레이어 공격
+void Attack(Player& player, vector<Enemy>& enemies) {
+    for (auto it = enemies.begin(); it != enemies.end();) {
+        if (abs(it->pos.x - player.pos.x) <= ATTACK_RANGE && abs(it->pos.y - player.pos.y) <= ATTACK_RANGE) {
+            it = enemies.erase(it); //공격 범위 내의 몬스터 제거
+        }
+        else {
+            ++it;
+        }
+    }
+}
+
+
+// 게임 루프
+void GameLoop() {
+    Player player;
+    vector<Enemy> enemies;
+    vector<Item> items;
+    Initialize(player, enemies, items);
+
+    int frameCount = 0;
+
+    while (player.health > 0) {
+        Draw(player, enemies, items);
+        HandleInput(player, enemies);
+        MoveEnemies(enemies);
+        CheckCollisions(player, enemies, items);
+
+        // 일정 시간마다 몬스터와 아이템 추가
+        if (++frameCount % 10 == 0) {
+            SpawnEnemy(enemies);
+            if (rand() % 3 == 0) SpawnItem(items); // 가끔 아이템 생성
+        }
+
+        Sleep(200);
+    }
+
+    cout << "Game Over! You survived for " << frameCount << " turns." << endl;
+}
+
+
+// 메인 함수
+int main() {
+    GameLoop();
+    return 0;
+}
